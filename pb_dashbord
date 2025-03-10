@@ -1,0 +1,145 @@
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+
+# File to store the data
+DATA_FILE = "bond_data.csv"
+
+# Load existing data or create a new DataFrame
+if os.path.exists(DATA_FILE):
+    df = pd.read_csv(DATA_FILE)
+else:
+    df = pd.DataFrame(columns=[
+        "Date", "ISIN", "Price Sold", "Launch", "Mid Price", 
+        "Client", "Currency", "Launch/Tap"
+    ])
+
+# Replace NaN values in Currency and Launch/Tap columns
+df["Currency"].fillna("AUD", inplace=True)
+df["Launch/Tap"].fillna("Launch", inplace=True)
+
+# Sidebar for adding new records
+st.sidebar.header("Add New Launch/Tap")
+new_date = st.sidebar.date_input("Date", key="new_date")
+new_isin = st.sidebar.text_input("ISIN", key="new_isin")
+new_price_sold = st.sidebar.number_input("Price Sold", min_value=0.0, key="new_price_sold")
+new_launch = st.sidebar.text_input("Launch", key="new_launch")
+new_mid_price = st.sidebar.number_input("Mid Price", min_value=0.0, key="new_mid_price")
+new_client = st.sidebar.text_input("Client", key="new_client")
+
+# Dropdown for Currency
+new_currency = st.sidebar.selectbox(
+    "Currency", 
+    options=["AUD", "USD", "SGD", "CNH"], 
+    key="new_currency"
+)
+
+# Dropdown for Launch/Tap
+new_launch_tap = st.sidebar.selectbox(
+    "Launch/Tap", 
+    options=["Launch", "Tap"], 
+    key="new_launch_tap"
+)
+
+if st.sidebar.button("Add Record"):
+    new_record = pd.DataFrame({
+        "Date": [new_date],
+        "ISIN": [new_isin],
+        "Price Sold": [new_price_sold],
+        "Launch": [new_launch],
+        "Mid Price": [new_mid_price],
+        "Client": [new_client],
+        "Currency": [new_currency],
+        "Launch/Tap": [new_launch_tap]
+    })
+    df = pd.concat([df, new_record], ignore_index=True)
+    df.to_csv(DATA_FILE, index=False)
+    st.sidebar.success("Record added successfully!")
+
+# Main area for displaying and editing records
+st.header("PB Tap Records")
+
+# Display the DataFrame
+st.write("Current Tap Data:")
+st.dataframe(df)
+
+# Option to edit or delete records
+st.header("Edit or Delete Records")
+
+# Check if DataFrame is empty
+if len(df) > 0:
+    record_index = st.number_input(
+        "Enter the index of the record to edit or delete", 
+        min_value=0, 
+        max_value=len(df) - 1, 
+        value=0, 
+        key="record_index"
+    )
+
+    if st.button("Edit Record"):
+        st.write("Editing Record:", record_index)
+        edit_date = st.date_input("Date", value=pd.to_datetime(df.loc[record_index, "Date"]), key="edit_date")
+        edit_isin = st.text_input("ISIN", value=df.loc[record_index, "ISIN"], key="edit_isin")
+        edit_price_sold = st.number_input("Price Sold", value=df.loc[record_index, "Price Sold"], key="edit_price_sold")
+        edit_launch = st.text_input("Launch", value=df.loc[record_index, "Launch"], key="edit_launch")
+        edit_mid_price = st.number_input("Mid Price", value=df.loc[record_index, "Mid Price"], key="edit_mid_price")
+        edit_client = st.text_input("Client", value=df.loc[record_index, "Client"], key="edit_client")
+
+        # Dropdown for Currency (editing)
+        edit_currency = st.selectbox(
+            "Currency", 
+            options=["AUD", "USD", "SGD", "CNH"], 
+            index=["AUD", "USD", "SGD", "CNH"].index(df.loc[record_index, "Currency"]), 
+            key="edit_currency"
+        )
+
+        # Dropdown for Launch/Tap (editing)
+        edit_launch_tap = st.selectbox(
+            "Launch/Tap", 
+            options=["Launch", "Tap"], 
+            index=["Launch", "Tap"].index(df.loc[record_index, "Launch/Tap"]), 
+            key="edit_launch_tap"
+        )
+
+        if st.button("Save Changes", key="save_changes"):
+            df.loc[record_index, "Date"] = edit_date
+            df.loc[record_index, "ISIN"] = edit_isin
+            df.loc[record_index, "Price Sold"] = edit_price_sold
+            df.loc[record_index, "Launch"] = edit_launch
+            df.loc[record_index, "Mid Price"] = edit_mid_price
+            df.loc[record_index, "Client"] = edit_client
+            df.loc[record_index, "Currency"] = edit_currency
+            df.loc[record_index, "Launch/Tap"] = edit_launch_tap
+            df.to_csv(DATA_FILE, index=False)
+            st.success("Record updated successfully!")
+
+    if st.button("Delete Record", key="delete_record"):
+        df = df.drop(record_index).reset_index(drop=True)
+        df.to_csv(DATA_FILE, index=False)
+        st.success("Record deleted successfully!")
+else:
+    st.warning("No records available to edit or delete.")
+
+# Filter records by date
+st.header("Filter Records by Date")
+filter_date = st.date_input("Select a date to filter records", value=datetime.today(), key="filter_date")
+
+if st.button("Filter Records", key="filter_records"):
+    filtered_df = df[pd.to_datetime(df["Date"]).dt.date == filter_date]
+    st.write(f"Records for {filter_date}:")
+    st.dataframe(filtered_df)
+
+# Option to download the data
+st.header("Download Data")
+st.write("Download the current bond sales data as a CSV file:")
+st.download_button(
+    label="Download CSV",
+    data=df.to_csv(index=False).encode('utf-8'),
+    file_name='bond_data.csv',
+    mime='text/csv',
+    key="download_button"
+)
+
+st.markdown("---")  # Adds a horizontal line for separation
+st.write("Dashboard Owner: Anita Hong")
