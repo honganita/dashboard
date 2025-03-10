@@ -1,0 +1,85 @@
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+
+# File to store the data
+DATA_FILE = "bond_data.csv"
+
+# Load existing data or create a new DataFrame
+if os.path.exists(DATA_FILE):
+    df = pd.read_csv(DATA_FILE)
+else:
+    df = pd.DataFrame(columns=["Date", "Client", "ISIN", "Bond Price Sold", "Notional"])
+
+# Sidebar for adding new records
+st.sidebar.header("Add New Bond Sale")
+new_date = st.sidebar.date_input("Date")
+new_client = st.sidebar.text_input("Client")
+new_isin = st.sidebar.text_input("ISIN")
+new_price = st.sidebar.number_input("Bond Price Sold", min_value=0.0)
+new_notional = st.sidebar.number_input("Notional", min_value=0.0)
+
+if st.sidebar.button("Add Record"):
+    new_record = pd.DataFrame({
+        "Date": [new_date],
+        "Client": [new_client],
+        "ISIN": [new_isin],
+        "Bond Price Sold": [new_price],
+        "Notional": [new_notional]
+    })
+    df = pd.concat([df, new_record], ignore_index=True)
+    df.to_csv(DATA_FILE, index=False)
+    st.sidebar.success("Record added successfully!")
+
+# Main area for displaying and editing records
+st.header("Bond Sales Dashboard")
+
+# Display the DataFrame
+st.write("Current Bond Sales Data:")
+st.dataframe(df)
+
+# Option to edit or delete records
+st.header("Edit or Delete Records")
+record_index = st.number_input("Enter the index of the record to edit or delete", min_value=0, max_value=len(df)-1, value=0)
+
+if st.button("Edit Record"):
+    st.write("Editing Record:", record_index)
+    edit_date = st.date_input("Date", value=pd.to_datetime(df.loc[record_index, "Date"]))
+    edit_client = st.text_input("Client", value=df.loc[record_index, "Client"])
+    edit_isin = st.text_input("ISIN", value=df.loc[record_index, "ISIN"])
+    edit_price = st.number_input("Bond Price Sold", value=df.loc[record_index, "Bond Price Sold"])
+    edit_notional = st.number_input("Notional", value=df.loc[record_index, "Notional"])
+
+    if st.button("Save Changes"):
+        df.loc[record_index, "Date"] = edit_date
+        df.loc[record_index, "Client"] = edit_client
+        df.loc[record_index, "ISIN"] = edit_isin
+        df.loc[record_index, "Bond Price Sold"] = edit_price
+        df.loc[record_index, "Notional"] = edit_notional
+        df.to_csv(DATA_FILE, index=False)
+        st.success("Record updated successfully!")
+
+if st.button("Delete Record"):
+    df = df.drop(record_index).reset_index(drop=True)
+    df.to_csv(DATA_FILE, index=False)
+    st.success("Record deleted successfully!")
+
+# Filter records by date
+st.header("Filter Records by Date")
+filter_date = st.date_input("Select a date to filter records", value=datetime.today())
+
+if st.button("Filter Records"):
+    filtered_df = df[pd.to_datetime(df["Date"]).dt.date == filter_date]
+    st.write(f"Records for {filter_date}:")
+    st.dataframe(filtered_df)
+
+# Option to download the data
+st.header("Download Data")
+st.write("Download the current bond sales data as a CSV file:")
+st.download_button(
+    label="Download CSV",
+    data=df.to_csv(index=False).encode('utf-8'),
+    file_name='bond_data.csv',
+    mime='text/csv',
+)
