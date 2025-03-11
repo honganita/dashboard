@@ -1,0 +1,191 @@
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+
+# File to store the data
+DATA_FILE = "bond_data.csv"
+
+# Load existing data or create a new DataFrame
+if os.path.exists(DATA_FILE):
+    df = pd.read_csv(DATA_FILE)
+    # Convert the Date column to datetime.date
+    df["Date"] = pd.to_datetime(df["Date"]).dt.date
+else:
+    df = pd.DataFrame(columns=[
+        "Date", "ISIN", "Price Sold", "Notional", "Mid Price", 
+        "Client", "Currency"
+    ])
+
+# Replace NaN values in Currency and Client columns
+df["Currency"].fillna("USD", inplace=True)
+df["Client"].fillna("HSBC HK", inplace=True)
+
+# Validate ISIN
+def validate_isin(isin):
+    isin = isin.strip()  # Remove leading/trailing spaces
+    if len(isin) != 12 or not isin.startswith("XS") or not isin[2:].isdigit():
+        return False
+    return True
+
+# Navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", ["Main", "Filter", "Summary"])
+
+# Main Page
+if page == "Main":
+    st.header("Bond Sales Dashboard")
+
+    # Sidebar for adding new records
+    st.sidebar.header("Add New Bond Sale")
+    new_date = st.sidebar.date_input("Date", key="new_date")
+    new_isin = st.sidebar.text_input("ISIN", key="new_isin")
+    new_price_sold = st.sidebar.number_input("Price Sold", min_value=0.0, key="new_price_sold")
+    new_notional = st.sidebar.number_input("Notional", min_value=0.0, key="new_notional")
+    new_mid_price = st.sidebar.number_input("Mid Price", min_value=0.0, key="new_mid_price")
+
+    # Dropdown for Client
+    new_client = st.sidebar.selectbox(
+        "Client", 
+        options=["HSBC HK", "HSBC SG", "HSBC Structuring", "BOS", "Hang Seng", "JPM", "DBS"], 
+        key="new_client"
+    )
+
+    # Dropdown for Currency
+    new_currency = st.sidebar.selectbox(
+        "Currency", 
+        options=["USD", "AUD", "HKD", "CNH", "GBP", "EUR"], 
+        key="new_currency"
+    )
+
+    if st.sidebar.button("Add Record"):
+        if not validate_isin(new_isin):
+            st.sidebar.error("Invalid ISIN. It must be a 12-character string starting with 'XS' followed by 10 digits.")
+        else:
+            new_record = pd.DataFrame({
+                "Date": [new_date],
+                "ISIN": [new_isin.strip()],  # Remove spaces
+                "Price Sold": [new_price_sold],
+                "Notional": [new_notional],
+                "Mid Price": [new_mid_price],
+                "Client": [new_client],
+                "Currency": [new_currency]
+            })
+            df = pd.concat([df, new_record], ignore_index=True)
+            # Save the DataFrame with Date as string
+            df.to_csv(DATA_FILE, index=False)
+            st.sidebar.success("Record added successfully!")
+
+    # Display the DataFrame with wider width
+    st.write("Current Bond Sales Data:")
+    st.dataframe(df, width=1200)  # Adjust width to avoid scrollbar
+
+    # Option to edit or delete records
+    st.header("Edit or Delete Records")
+
+    # Check if DataFrame is empty
+    if len(df) > 0:
+        record_index = st.number_input(
+            "Enter the index of the record to edit or delete", 
+            min_value=0, 
+            max_value=len(df) - 1, 
+            value=0, 
+            key="record_index"
+        )
+
+        if 'edit_mode' not in st.session_state:
+            st.session_state.edit_mode = False
+
+        if st.button("Edit Record"):
+            st.session_state.edit_mode = not st.session_state.edit_mode
+
+        if st.session_state.edit_mode:
+            st.write("Editing Record:", record_index)
+            edit_date = st.date_input("Date", value=df.loc[record_index, "Date"], key="edit_date")
+            edit_isin = st.text_input("ISIN", value=df.loc[record_index, "ISIN"], key="edit_isin")
+            edit_price_sold = st.number_input("Price Sold", value=df.loc[record_index, "Price Sold"], key="edit_price_sold")
+            edit_notional = st.number_input("Notional", value=df.loc[record_index, "Notional"], key="edit_notional")
+            edit_mid_price = st.number_input("Mid Price", value=df.loc[record_index, "Mid Price"], key="edit_mid_price")
+            edit_client = st.selectbox(
+                "Client", 
+                options=["HSBC HK", "HSBC SG", "HSBC Structuring", "BOS", "Hang Seng", "JPM", "DBS"], 
+                index=["HSBC HK", "HSBC SG", "HSBC Structuring", "BOS", "Hang Seng", "JPM", "DBS"].index(df.loc[record_index, "Client"]), 
+                key="edit_client"
+            )
+            edit_currency = st.selectbox(
+                "Currency", 
+                options=["USD", "AUD", "HKD", "CNH", "GBP", "EUR"], 
+                index=["USD", "AUD", "HKD", "CNH", "GBP", "EUR"].index(df.loc[record_index, "Currency"]), 
+                key="edit_currency"
+            )
+
+            if st.button("Save Changes", key="save_changes"):
+                if not validate_isin(edit_isin):
+                    st.error("Invalid ISIN. It must be a 12-character string starting with 'XS' followed by 10 digits.")
+                else:
+                    df.loc[record_index, "Date"] = edit_date
+                    df.loc[record_index, "ISIN"] = edit_isin.strip()  # Remove spaces
+                    df.loc[record_index, "Price Sold"] = edit_price_sold
+                    df.loc[record_index, "Notional"] = edit_notional
+                    df.loc[record_index, "Mid Price"] = edit_mid_price
+                    df.loc[record_index, "Client"] = edit_client
+                    df.loc[record_index, "Currency"] = edit_currency
+                    # Save the DataFrame with Date as string
+                    df.to_csv(DATA_FILE, index=False)
+                    st.success("Record updated successfully!")
+                    st.session_state.edit_mode = False  # Exit edit mode
+
+        if st.button("Delete Record", key="delete_record"):
+            df = df.drop(record_index).reset_index(drop=True)
+            # Save the DataFrame with Date as string
+            df.to_csv(DATA_FILE, index=False)
+            st.success("Record deleted successfully!")
+    else:
+        st.warning("No records available to edit or delete.")
+
+    # Download CSV button under Edit or Delete Records
+    st.write("Download the current bond sales data as a CSV file:")
+    st.download_button(
+        label="Download CSV",
+        data=df.to_csv(index=False).encode('utf-8'),
+        file_name='bond_data.csv',
+        mime='text/csv',
+        key="download_button"
+    )
+
+# Filter Page
+elif page == "Filter":
+    st.header("Filter Records by Date")
+    filter_date = st.date_input("Select a date to filter records", value=datetime.today(), key="filter_date")
+
+    if st.button("Filter Records", key="filter_records"):
+        filtered_df = df[df["Date"] == filter_date]
+        st.write(f"Records for {filter_date}:")
+        st.dataframe(filtered_df, width=1200)  # Adjust width to avoid scrollbar
+
+# Summary Page
+elif page == "Summary":
+    st.header("Summary Options")
+
+    summary_option = st.selectbox(
+        "Select a summary option",
+        ["Total Notional for Each ISIN Across All Dates", "Sum Notional for Each ISIN with Same Price Sold on One Date"],
+        key="summary_option"
+    )
+
+    if summary_option == "Total Notional for Each ISIN Across All Dates":
+        summary_df = df.groupby("ISIN")["Notional"].sum().reset_index()
+        st.write("Total Notional for Each ISIN Across All Dates:")
+        st.dataframe(summary_df)
+
+    elif summary_option == "Sum Notional for Each ISIN with Same Price Sold on One Date":
+        selected_date = st.date_input("Select a date for summary", value=datetime.today(), key="summary_date")
+        filtered_df = df[df["Date"] == selected_date]
+        summary_df = filtered_df.groupby(["ISIN", "Price Sold"])["Notional"].sum().reset_index()
+        st.write(f"Sum Notional for Each ISIN with Same Price Sold on {selected_date}:")
+        st.dataframe(summary_df)
+
+
+# Add a footer to the dashboard
+st.markdown("---")  # Adds a horizontal line for separation
+st.write("author: Anita Hong, maintenance pls contact Anita Hong")
