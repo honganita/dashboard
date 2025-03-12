@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, time
 
 # File to store the data
 DATA_FILE = "bond_data.csv"
@@ -9,12 +9,13 @@ DATA_FILE = "bond_data.csv"
 # Load existing data or create a new DataFrame
 if os.path.exists(DATA_FILE):
     df = pd.read_csv(DATA_FILE)
-    # Convert the Date column to datetime.date
+    # Convert the Date and Settlement Date columns to datetime.date
     df["Date"] = pd.to_datetime(df["Date"]).dt.date
+    df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], errors='coerce').dt.date
 else:
     df = pd.DataFrame(columns=[
         "Date", "ISIN", "Price Sold", "Notional", "Mid Price", 
-        "Client", "Currency"
+        "Client", "Currency", "Launch/Tap", "Settlement Date", "Status"
     ])
 
 # Replace NaN values in Currency and Client columns
@@ -30,11 +31,18 @@ def validate_isin(isin):
 
 # Navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Main", "Filter", "Summary"])
+page = st.sidebar.radio("Go to", ["Main", "Filter", "Summary", "Trader Workspace"])
 
 # Main Page
 if page == "Main":
     st.header("Bond Sales Dashboard")
+
+    # Refresh button
+    if st.button("Refresh Data", key="refresh_button"):
+        df = pd.read_csv(DATA_FILE)
+        df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], errors='coerce').dt.date
+        st.success("Data refreshed successfully!")
 
     # Sidebar for adding new records
     st.sidebar.header("Add New Bond Sale")
@@ -58,10 +66,32 @@ if page == "Main":
         key="new_currency"
     )
 
+    # Launch/Tap field with "Tap" as default
+    new_launch_tap = st.sidebar.selectbox(
+        "Launch/Tap", 
+        options=["Launch", "Tap"], 
+        index=1,  # Set "Tap" as default
+        key="new_launch_tap"
+    )
+
+    # Settlement Date field (only if Launch is selected)
+    new_settlement_date = None
+    if new_launch_tap == "Launch":
+        new_settlement_date = st.sidebar.date_input("Settlement Date", key="new_settlement_date")
+
+    # Status field based on entry time
+    current_time = datetime.now().time()
+    status = "LATE" if current_time > time(17, 30) else "None"
+
     if st.sidebar.button("Add Record"):
         if not validate_isin(new_isin):
             st.sidebar.error("Invalid ISIN. It must be a 12-character string starting with 'XS' followed by 10 digits.")
         else:
+            if status == "LATE":
+                st.warning("Please note that cut-off time has passed. Kindly confirm with trading on your exception quota and if this can be processed.")
+                confirm_late_trade = st.checkbox("I confirm this is a late trade.")
+                if not confirm_late_trade:
+                    st.stop()  # Stop execution if the user doesn't confirm
             new_record = pd.DataFrame({
                 "Date": [new_date],
                 "ISIN": [new_isin.strip()],  # Remove spaces
@@ -69,7 +99,10 @@ if page == "Main":
                 "Notional": [new_notional],
                 "Mid Price": [new_mid_price],
                 "Client": [new_client],
-                "Currency": [new_currency]
+                "Currency": [new_currency],
+                "Launch/Tap": [new_launch_tap],
+                "Settlement Date": [new_settlement_date],
+                "Status": [status]
             })
             df = pd.concat([df, new_record], ignore_index=True)
             # Save the DataFrame with Date as string
@@ -78,7 +111,7 @@ if page == "Main":
 
     # Display the DataFrame with wider width
     st.write("Current Bond Sales Data:")
-    st.dataframe(df, width=1200)  # Adjust width to avoid scrollbar
+    st.dataframe(df, width=1500)  # Adjust width to avoid scrollbar
 
     # Option to edit or delete records
     st.header("Edit or Delete Records")
@@ -118,6 +151,18 @@ if page == "Main":
                 index=["USD", "AUD", "HKD", "CNH", "GBP", "EUR"].index(df.loc[record_index, "Currency"]), 
                 key="edit_currency"
             )
+            edit_launch_tap = st.selectbox(
+                "Launch/Tap", 
+                options=["Launch", "Tap"], 
+                index=["Launch", "Tap"].index(df.loc[record_index, "Launch/Tap"]), 
+                key="edit_launch_tap"
+            )
+            edit_settlement_date = None
+            if edit_launch_tap == "Launch":
+                settlement_date_value = df.loc[record_index, "Settlement Date"]
+                if pd.isna(settlement_date_value):
+                    settlement_date_value = datetime.today().date()
+                edit_settlement_date = st.date_input("Settlement Date", value=settlement_date_value, key="edit_settlement_date")
 
             if st.button("Save Changes", key="save_changes"):
                 if not validate_isin(edit_isin):
@@ -130,6 +175,8 @@ if page == "Main":
                     df.loc[record_index, "Mid Price"] = edit_mid_price
                     df.loc[record_index, "Client"] = edit_client
                     df.loc[record_index, "Currency"] = edit_currency
+                    df.loc[record_index, "Launch/Tap"] = edit_launch_tap
+                    df.loc[record_index, "Settlement Date"] = edit_settlement_date
                     # Save the DataFrame with Date as string
                     df.to_csv(DATA_FILE, index=False)
                     st.success("Record updated successfully!")
@@ -153,19 +200,52 @@ if page == "Main":
         key="download_button"
     )
 
+    # # Memo Space
+    # st.header("Memo Space")
+    # memo = st.text_area("Write your memo here", key="memo")
+    # st.write("Your Memo:")
+    # st.write(memo)
+
+
+# Filter Page
 # Filter Page
 elif page == "Filter":
-    st.header("Filter Records by Date")
-    filter_date = st.date_input("Select a date to filter records", value=datetime.today(), key="filter_date")
+    st.header("Filter Records")
+    
+    # Choose filter type
+    filter_type = st.radio(
+        "Choose filter type", 
+        options=["Filter by ISIN", "Filter by Date"], 
+        key="filter_type"
+    )
 
-    if st.button("Filter Records", key="filter_records"):
-        filtered_df = df[df["Date"] == filter_date]
-        st.write(f"Records for {filter_date}:")
-        st.dataframe(filtered_df, width=1200)  # Adjust width to avoid scrollbar
+    if filter_type == "Filter by ISIN":
+        filter_isin = st.text_input("Enter ISIN to filter records", key="filter_isin")
+        if st.button("Filter Records", key="filter_records"):
+            filtered_df = df.copy()
+            if filter_isin:
+                filtered_df = filtered_df[filtered_df["ISIN"] == filter_isin.strip()]
+            st.write(f"Filtered Records:")
+            st.dataframe(filtered_df, width=1500)
+
+    elif filter_type == "Filter by Date":
+        filter_date = st.date_input("Select a date to filter records", value=datetime.today(), key="filter_date")
+        if st.button("Filter Records", key="filter_records"):
+            filtered_df = df.copy()
+            if filter_date:
+                filtered_df = filtered_df[filtered_df["Date"] == filter_date]
+            st.write(f"Filtered Records:")
+            st.dataframe(filtered_df, width=1500)
 
 # Summary Page
 elif page == "Summary":
     st.header("Summary Options")
+
+    # Display records entered today
+    today = datetime.today().date()
+    today_records = df[df["Date"] == today]
+    st.write(f"Records Entered Today ({today}):")
+    st.dataframe(today_records, width=1500)
 
     summary_option = st.selectbox(
         "Select a summary option",
@@ -185,6 +265,23 @@ elif page == "Summary":
         st.write(f"Sum Notional for Each ISIN with Same Price Sold on {selected_date}:")
         st.dataframe(summary_df)
 
+# Trader Workspace Page
+elif page == "Trader Workspace":
+    st.header("Trader Workspace")
+    
+    # Password protection
+    password = st.text_input("Enter Password", type="password", key="trader_password")
+    if password != "1234":
+        st.error("Incorrect password. Access denied.")
+        st.stop()  # Stop execution if the password is incorrect
+    
+    st.success("Access granted! Welcome to the Trader Workspace.")
+    
+    # Add trader-specific functionality here
+    st.write("This is a secure workspace for traders.")
+    # Example: Display all records
+    st.write("All Bond Sales Data:")
+    st.dataframe(df, width=1500)
 
 # Add a footer to the dashboard
 st.markdown("---")  # Adds a horizontal line for separation
